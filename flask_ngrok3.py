@@ -1,5 +1,4 @@
 import atexit
-import json
 import os
 import platform
 import shutil
@@ -10,24 +9,32 @@ import time
 import zipfile
 from pathlib import Path
 from threading import Timer
+from typing import Optional
 
 import requests
+from flask import Flask
+
+__all__ = ["run_with_ngrok", "start_ngrok", "get_host"]
+
+_ngrok_address = ""
 
 
-def _get_command():
+def _get_command() -> str:
     system = platform.system()
-    if system == "Darwin":
+    if system in ["Darwin", "Linux"]:
         command = "ngrok"
     elif system == "Windows":
         command = "ngrok.exe"
-    elif system == "Linux":
-        command = "ngrok"
     else:
-        raise Exception("{system} is not supported".format(system=system))
+        raise Exception(f"{system} is not supported")
     return command
 
 
-def _check_ngrok_available():
+def get_host() -> str:
+    return _ngrok_address
+
+
+def _check_ngrok_available() -> bool:
     cmd = "where" if platform.system() == "Windows" else "which"
     try:
         res = subprocess.call([cmd, "ngrok"])
@@ -37,7 +44,7 @@ def _check_ngrok_available():
         return False
 
 
-def _run_ngrok(port, auth_token):
+def _run_ngrok(host: str, port: int, auth_token: Optional[str] = None) -> str:
     command = _get_command()
     if not _check_ngrok_available():
         ngrok_path = str(Path(tempfile.gettempdir(), "ngrok"))
@@ -50,19 +57,19 @@ def _run_ngrok(port, auth_token):
     if auth_token:
         os.system(f"{executable} authtoken {auth_token}")
 
-    ngrok = subprocess.Popen([executable, "http", str(port)])
+    ngrok = subprocess.Popen([executable, "http", f"{host}:{port}"])
     atexit.register(ngrok.terminate)
-    localhost_url = "http://localhost:4040/api/tunnels"  # Url with tunnel details
-    time.sleep(1)
-    tunnel_url = requests.get(localhost_url).text  # Get the tunnel information
-    j = json.loads(tunnel_url)
+    localhost_url = f"http://localhost:4040/api/tunnels"  # Url with tunnel details
+    for _ in range(5):
+        time.sleep(1)
+        tunnels_data = requests.get(localhost_url).json()["tunnels"]
+        if len(tunnels_data):
+            return tunnels_data[0]["public_url"].replace("https", "http")
 
-    tunnel_url = j["tunnels"][0]["public_url"]  # Do the parsing of the get
-    tunnel_url = tunnel_url.replace("https", "http")
-    return tunnel_url
+    raise ValueError("Not found ngrok tunnel public url after start")
 
 
-def _download_ngrok(ngrok_path):
+def _download_ngrok(ngrok_path: str):
     if Path(ngrok_path).exists():
         return
     system = platform.system()
@@ -79,7 +86,7 @@ def _download_ngrok(ngrok_path):
         zip_ref.extractall(ngrok_path)
 
 
-def _download_file(url):
+def _download_file(url: str) -> str:
     local_filename = url.split("/")[-1]
     r = requests.get(url, stream=True)
     download_path = str(Path(tempfile.gettempdir(), local_filename))
@@ -88,24 +95,28 @@ def _download_file(url):
     return download_path
 
 
-def start_ngrok(port, auth_token):
-    ngrok_address = _run_ngrok(port, auth_token)
-    print(f" * Running on {ngrok_address}")
+def start_ngrok(host: str, port: int, auth_token: Optional[str] = None):
+    global _ngrok_address
+    _ngrok_address = _run_ngrok(host, port, auth_token)
+    print(f" * Running on {_ngrok_address}")
     print(f" * Traffic stats available on http://127.0.0.1:4040")
+    requests.get(f"http://{host}:{port}/")
 
 
-def run_with_ngrok(app, auth_token=None):
+def run_with_ngrok(app: Flask, auth_token: Optional[str] = None):
     """
     The provided Flask app will be securely exposed to the public internet via ngrok when run,
     and the its ngrok address will be printed to stdout
     :param app: a Flask application object
+    :param auth_token: ngrok authtoken if exists
     :return: None
     """
     old_run = app.run
 
     def new_run(*args, **kwargs):
+        host = kwargs.get("host", "127.0.0.1")
         port = kwargs.get("port", 5000)
-        thread = Timer(1, start_ngrok, args=(port, auth_token))
+        thread = Timer(1, start_ngrok, args=(host, port, auth_token))
         thread.setDaemon(True)
         thread.start()
         old_run(*args, **kwargs)
