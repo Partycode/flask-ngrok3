@@ -4,19 +4,19 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="flask-ngrok2",
-    version="0.2.4",
-    author="Mohamed Rashad",
-    description="A successor to flask-ngrok for demo Flask apps using ngrok.",
+    name="flask-ngrok3",
+    version="0.3.0",
+    author="Partycode",
+    description="A successor to flask-ngrok and flask-ngrok2 for demo Flask apps using ngrok.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/MohamedAliRashad/flask-ngrok2",
+    url="https://github.com/Partycode/flask-ngrok3",
     classifiers=[
         "Programming Language :: Python :: 3.6",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    keywords='flask ngrok2 demo',
+    keywords='flask ngrok demo',
     install_requires=['Flask>=0.8', 'requests'],
-    py_modules=['flask_ngrok2']
+    py_modules=['flask_ngrok3']
 )
